@@ -1,222 +1,746 @@
-// ==================== 游戏基础配置 ====================
-const GAME_CONFIG = {
-    // 符号配置 - 使用图片路径
-    symbols: ['symbols/01.png', 'symbols/02.png', 'symbols/03.png', 'symbols/04.png', 'symbols/05.png', 
-              'symbols/06.png', 'symbols/07.png', 'symbols/08.png', 'symbols/09.png', 'symbols/10.png',
-              'symbols/11.png', 'symbols/12.png', 'symbols/13.png'],
-    
-    // 卷轴配置
-    reelCount: 5,
-    visibleSymbols: 3,
-    symbolsPerReel: 20,
-    
-    // 金额配置
-    initialBalance: 1000,
-    initialJackpot: 5000,
-    minBet: 1,
-    maxBet: 100,
-    betStep: 1,
-    
-    // 动画配置
-    spinDuration: 3000,
-    reelStopDelay: 300,
-    spinSpeed: 50,
-    
-    // 游戏规则
-    freeSpinsMultiplier: 3,
-    freeSpinsCount: 10,
-    jackpotProbability: 0.02,
-    bigWinThreshold: 50,
-    
-    // 特殊符号 - 使用图片路径
-    wildSymbol: 'symbols/11.png',
-    scatterSymbol: 'symbols/12.png',
-    bonusSymbol: 'symbols/13.png',
-    
-    // ==================== 音乐配置修改处 ====================
-    musicPaths: {
-        // 修改：根据你的目录结构，背景音乐路径加了 /background/
-        background: 'music/background/bg.mp3', 
+// ==================== 游戏主引擎 ====================
+class GameEngine {
+    constructor() {
+        // 初始化游戏组件 - 修改顺序，先初始化音频管理器
+        this.state = new GameState();
+        this.ui = new UIManager();
+        this.audioManager = new AudioManager();
+        this.reelManager = new ReelManager(document.querySelectorAll('.reel'), this.audioManager);
+        this.rtpManager = new RTPManager(RTP_CONFIG);
         
-        // 其他音效保持在 music/ 根目录下 (根据你提供的树状图结构)
-        spin: 'music/spin.mp3',
-        win: 'music/win.mp3',
-        bigWin: 'music/bigwin.mp3',
-        jackpot: 'music/jackpot.mp3',
-        freeSpins: 'music/freespins.mp3'
+        // ========== 新增：虚拟玩家系统 ==========
+        this.virtualPlayers = {
+            announcementTimer: null,
+            jackpotTriggered: false,
+            lastJackpotTime: 0
+        };
+        
+        // 修改RTP为90%
+        RTP_CONFIG.targetRTP = 90;
+        RTP_CONFIG.rtpDistribution = {
+            baseGame: 79.0,
+            freeSpins: 8.0,
+            jackpot: 2.0,
+            bonus: 1.0
+        };
+        
+        // ========== 新增：初始化虚拟玩家名字池 ==========
+        VIRTUAL_PLAYER_CONFIG.initializeNamePool(300); // 预生成300个名字
+        
+        // 初始化游戏
+        this.initializeGame();
+        this.initializeEventListeners();
+        this.startJackpotGrowth();
+        
+        // ========== 新增：启动虚拟玩家公告 ==========
+        this.startVirtualPlayerAnnouncements();
+        
+        console.log('老虎机游戏已启动！RTP: 90%');
+        console.log('💡 提示：点击任意位置启用背景音乐');
     }
-};
 
-// ==================== RTP配置 ====================
-const RTP_CONFIG = {
-    // 基础RTP设置
-    targetRTP: 96.5,                    // 目标RTP百分比
-    volatility: 'medium',               // 波动率: low/medium/high
-    hitFrequency: 22,                   // 中奖频率(%)
+    // 初始化游戏
+    initializeGame() {
+        // 更新初始显示
+        this.ui.updateDisplay(this.state);
+        this.ui.updatePaytable(this.state.lines);
+        this.ui.updateWinHistory(this.state.winHistory);
+        
+        // 初始化统计显示
+        this.updateStatsDisplay();
+    }
+
+    // 初始化事件监听器
+    initializeEventListeners() {
+        // 背景音乐已在 AudioManager 中自动处理
+
+        // 押注控制
+        this.ui.elements.btnBetUp.addEventListener('click', () => {
+            if (!this.state.isSpinning) {
+                this.state.increaseBet();
+                this.ui.updateDisplay(this.state);
+            }
+        });
+
+        this.ui.elements.btnBetDown.addEventListener('click', () => {
+            if (!this.state.isSpinning) {
+                this.state.decreaseBet();
+                this.ui.updateDisplay(this.state);
+            }
+        });
+
+        this.ui.elements.btnMaxBet.addEventListener('click', () => {
+            if (!this.state.isSpinning) {
+                this.state.setMaxBet();
+                this.ui.updateDisplay(this.state);
+            }
+        });
+
+        // 线数切换
+        this.ui.elements.btnSwitchLines.addEventListener('click', () => {
+            if (!this.state.isSpinning) {
+                this.state.toggleLines();
+                this.ui.updateDisplay(this.state);
+                this.ui.updatePaytable(this.state.lines);
+                this.ui.addAnnouncement(`切换到 ${this.state.lines} 线模式`);
+            }
+        });
+
+        // 旋转按钮
+        this.ui.elements.btnSpin.addEventListener('click', () => {
+            this.spin();
+        });
+
+        // 自动旋转
+        this.ui.elements.btnAutoplay.addEventListener('click', () => {
+            this.ui.showModal('autoplay-overlay');
+        });
+
+        this.ui.elements.btnStopAutoplay.addEventListener('click', () => {
+            this.stopAutoplay();
+        });
+
+        // 赔付表
+        this.ui.elements.btnPaytable.addEventListener('click', () => {
+            this.ui.showModal('paytable-overlay');
+        });
+
+        // 弹窗按钮
+        document.getElementById('btn-start-free-spins').addEventListener('click', () => {
+            this.ui.hideModal('free-spins-overlay');
+            this.audioManager.playFreeSpinsSound();
+            this.startFreeSpins();
+        });
+
+        document.getElementById('btn-cancel-autoplay').addEventListener('click', () => {
+            this.ui.hideModal('autoplay-overlay');
+        });
+
+        document.getElementById('btn-close-paytable').addEventListener('click', () => {
+            this.ui.hideModal('paytable-overlay');
+        });
+
+        document.getElementById('btn-close-jackpot').addEventListener('click', () => {
+            this.ui.hideModal('jackpot-overlay');
+        });
+
+        document.getElementById('btn-close-stats').addEventListener('click', () => {
+            this.ui.hideModal('stats-overlay');
+        });
+
+        // 自动旋转选项
+        document.querySelectorAll('.autoplay-option-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const count = parseInt(e.target.dataset.count);
+                this.startAutoplay(count);
+                this.ui.hideModal('autoplay-overlay');
+            });
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !this.state.isSpinning) {
+                e.preventDefault();
+                this.spin();
+            }
+            
+            // 调试快捷键
+            if (e.code === 'KeyD' && e.ctrlKey) {
+                e.preventDefault();
+                this.showDebugInfo();
+            }
+            
+            // 统计信息快捷键
+            if (e.code === 'KeyS' && e.ctrlKey) {
+                e.preventDefault();
+                this.showStats();
+            }
+            
+            // 静音快捷键
+            if (e.code === 'KeyM' && e.ctrlKey) {
+                e.preventDefault();
+                const isMuted = this.audioManager.toggleMute();
+                this.ui.addAnnouncement(isMuted ? '已静音' : '已取消静音', 'info');
+            }
+        });
+
+        // 自定义事件监听
+        this.ui.on('autoplaySelected', (e) => {
+            this.startAutoplay(e.detail);
+            this.ui.hideModal('autoplay-overlay');
+        });
+
+        // 防止触摸滚动
+        document.addEventListener('touchmove', (e) => {
+            if (e.target.closest('#paytable-content, .scrollable-content')) {
+                return;
+            }
+            e.preventDefault();
+        }, { passive: false });
+    }
+
+    // ========== 新增：虚拟玩家公告系统 ==========
+    startVirtualPlayerAnnouncements() {
+        const scheduleNextAnnouncement = () => {
+            const delay = Math.random() * 
+                (VIRTUAL_PLAYER_CONFIG.announcementInterval.max - 
+                 VIRTUAL_PLAYER_CONFIG.announcementInterval.min) + 
+                VIRTUAL_PLAYER_CONFIG.announcementInterval.min;
+            
+            this.virtualPlayers.announcementTimer = setTimeout(() => {
+                this.generateVirtualPlayerWin();
+                scheduleNextAnnouncement();
+            }, delay);
+        };
+        
+        scheduleNextAnnouncement();
+    }
     
-    // RTP分配比例
-    rtpDistribution: {
-        baseGame: 85.0,                 // 基础游戏RTP
-        freeSpins: 8.5,                 // 免费旋转RTP  
-        jackpot: 2.0,                   // Jackpot RTP
-        bonus: 1.0                      // 奖金游戏RTP
-    },
-    
-    // 符号出现频率 (基于RTP计算)
-    symbolFrequencies: {
-        'symbols/10.png': 15.5,    // 最低价值符号 - 最高频率
-        'symbols/07.png': 12.5,    // 低价值符号
-        'symbols/09.png': 8.2,     // 中低价值符号
-        'symbols/08.png': 4.1,     // 高价值符号
-        'symbols/01.png': 2.1,     // 最高价值符号 - 最低频率
-        'symbols/02.png': 2.0,     // 高价值符号
-        'symbols/03.png': 2.0,     // 高价值符号
-        'symbols/04.png': 8.0,     // 中价值符号
-        'symbols/05.png': 8.0,     // 中价值符号
-        'symbols/06.png': 8.0,     // 中价值符号
-        'symbols/11.png': 1.8,     // Wild符号
-        'symbols/12.png': 1.8,     // Scatter符号
-        'symbols/13.png': 1.0      // Bonus符号
-    },
-    
-    // 动态调整参数
-    adjustment: {
-        enabled: true,
-        checkInterval: 100,             // 每100局检查一次
-        maxAdjustment: 5.0,             // 最大调整幅度%
-        minRTP: 94.0,                   // 最低RTP限制
-        maxRTP: 98.0                    // 最高RTP限制
-    },
-    
-    // 波动率配置
-    volatilityProfiles: {
-        low: {
-            baseHitRate: 30,
-            bigWinMultiplier: 50,
-            drySpellMax: 10,
-            symbolFrequencyMultiplier: 1.2
-        },
-        medium: {
-            baseHitRate: 22, 
-            bigWinMultiplier: 100,
-            drySpellMax: 15,
-            symbolFrequencyMultiplier: 1.0
-        },
-        high: {
-            baseHitRate: 15,
-            bigWinMultiplier: 200,
-            drySpellMax: 25,
-            symbolFrequencyMultiplier: 0.8
+    generateVirtualPlayerWin() {
+        const playerName = this.getRandomPlayerName();
+        const winType = this.getRandomWinType();
+        const amount = this.calculateVirtualWinAmount(winType);
+        
+        let message = '';
+        
+        if (winType === 'jackpot') {
+            // Jackpot只给虚拟玩家
+            message = `🎉 恭喜玩家 ${playerName} 赢得Jackpot大奖 ${amount.toLocaleString()}元！`;
+            this.virtualPlayers.jackpotTriggered = true;
+            this.virtualPlayers.lastJackpotTime = Date.now();
+            
+            // 重置Jackpot
+            this.state.jackpot = GAME_CONFIG.initialJackpot;
+        } else {
+            message = `🎊 玩家 ${playerName} 中得 ${amount.toLocaleString()}元 ${winType}奖金！`;
+        }
+        
+        this.ui.addAnnouncement(message, 'success');
+        
+        // 播放音效（如果是Jackpot）
+        if (winType === 'jackpot' && this.audioManager) {
+            this.audioManager.playWinSound(amount);
         }
     }
-};
+    
+    getRandomPlayerName() {
+        return VIRTUAL_PLAYER_CONFIG.getRandomPlayerName();
+    }
+    
+    getRandomWinType() {
+        const rand = Math.random();
+        
+        // 检查是否满足Jackpot触发条件
+        if (this.state.jackpot >= VIRTUAL_PLAYER_CONFIG.jackpotTrigger && 
+            !this.virtualPlayers.jackpotTriggered &&
+            Date.now() - this.virtualPlayers.lastJackpotTime > 300000) { // 5分钟内不重复
+            
+            const jackpotChance = 0.02; // 2%概率
+            if (rand < jackpotChance) {
+                return 'jackpot';
+            }
+        }
+        
+        if (rand < 0.6) return 'small';
+        if (rand < 0.85) return 'medium';
+        return 'large';
+    }
+    
+    calculateVirtualWinAmount(winType) {
+        const ranges = VIRTUAL_PLAYER_CONFIG.winAmounts[winType];
+        if (winType === 'jackpot') {
+            // Jackpot金额基于当前累计
+            return this.state.jackpot * (0.8 + Math.random() * 0.4); // 80%-120%的Jackpot
+        }
+        return ranges.min + Math.random() * (ranges.max - ranges.min);
+    }
 
-// ==================== 赔付表配置 (25线) ====================
-const PAYTABLE_25 = {
-    'symbols/01.png': { 3: 100, 4: 500, 5: 2000, name: '龙', type: 'high' },
-    'symbols/02.png': { 3: 80, 4: 400, 5: 1500, name: '凤凰', type: 'high' },
-    'symbols/03.png': { 3: 60, 4: 300, 5: 1000, name: '元宝', type: 'high' },
-    'symbols/04.png': { 3: 40, 4: 200, 5: 800, name: '竹节', type: 'medium' },
-    'symbols/05.png': { 3: 40, 4: 200, 5: 800, name: '福字', type: 'medium' },
-    'symbols/06.png': { 3: 30, 4: 150, 5: 600, name: '锦鲤', type: 'medium' },
-    'symbols/07.png': { 3: 20, 4: 100, 5: 400, name: '金币', type: 'low' },
-    'symbols/08.png': { 3: 50, 4: 250, 5: 1200, name: '幸运7', type: 'high' },
-    'symbols/09.png': { 3: 25, 4: 125, 5: 500, name: '铃铛', type: 'low' },
-    'symbols/10.png': { 3: 15, 4: 75, 5: 300, name: '美元', type: 'low' },
-    'symbols/11.png': { special: 'Wild - 替代任何符号', name: 'Wild', type: 'special' },
-    'symbols/12.png': { special: 'Scatter - 3个触发免费旋转', name: 'Scatter', type: 'special' },
-    'symbols/13.png': { special: 'Bonus - 触发奖金游戏', name: 'Bonus', type: 'special' }
-};
+    // 开始旋转
+    async spin() {
+        if (this.state.isSpinning) return;
+        
+        // 检查是否可以旋转
+        if (!this.state.canSpin()) {
+            if (!this.state.isFreeSpinsActive) {
+                this.ui.addAnnouncement('余额不足！', 'error');
+            }
+            return;
+        }
 
-// ==================== 赔付表配置 (40线) ====================
-const PAYTABLE_40 = {
-    'symbols/01.png': { 3: 60, 4: 300, 5: 1200, name: '龙', type: 'high' },
-    'symbols/02.png': { 3: 50, 4: 250, 5: 1000, name: '凤凰', type: 'high' },
-    'symbols/03.png': { 3: 40, 4: 200, 5: 600, name: '元宝', type: 'high' },
-    'symbols/04.png': { 3: 25, 4: 120, 5: 500, name: '竹节', type: 'medium' },
-    'symbols/05.png': { 3: 25, 4: 120, 5: 500, name: '福字', type: 'medium' },
-    'symbols/06.png': { 3: 20, 4: 100, 5: 400, name: '锦鲤', type: 'medium' },
-    'symbols/07.png': { 3: 15, 4: 75, 5: 250, name: '金币', type: 'low' },
-    'symbols/08.png': { 3: 30, 4: 150, 5: 800, name: '幸运7', type: 'high' },
-    'symbols/09.png': { 3: 15, 4: 80, 5: 300, name: '铃铛', type: 'low' },
-    'symbols/10.png': { 3: 10, 4: 50, 5: 200, name: '美元', type: 'low' },
-    'symbols/11.png': { special: 'Wild - 替代任何符号', name: 'Wild', type: 'special' },
-    'symbols/12.png': { special: 'Scatter - 3个触发免费旋转', name: 'Scatter', type: 'special' },
-    'symbols/13.png': { special: 'Bonus - 触发奖金游戏', name: 'Bonus', type: 'special' }
-};
+        try {
+            this.state.isSpinning = true;
+            this.state.win = 0;
+            this.ui.clearWinLines();
+            this.ui.updateDisplay(this.state);
 
-// ==================== 中奖线配置 (40条) ====================
-const WIN_LINES = [
-    // 水平线
-    { id: 1, positions: [1, 1, 1, 1, 1], name: '线 1', color: '#FFD700' },
-    { id: 2, positions: [0, 0, 0, 0, 0], name: '线 2', color: '#FF6B6B' },
-    { id: 3, positions: [2, 2, 2, 2, 2], name: '线 3', color: '#4ECDC4' },
-    // V型线
-    { id: 4, positions: [0, 1, 2, 1, 0], name: '线 4', color: '#45B7D1' },
-    { id: 5, positions: [2, 1, 0, 1, 2], name: '线 5', color: '#96CEB4' },
-    // 其他形状
-    { id: 6, positions: [1, 0, 0, 0, 1], name: '线 6', color: '#E74C3C' },
-    { id: 7, positions: [1, 2, 2, 2, 1], name: '线 7', color: '#9B59B6' },
-    { id: 8, positions: [0, 0, 1, 2, 2], name: '线 8', color: '#F39C12' },
-    { id: 9, positions: [2, 2, 1, 0, 0], name: '线 9', color: '#1ABC9C' },
-    { id: 10, positions: [1, 0, 1, 2, 1], name: '线 10', color: '#E67E22' },
-    // 更多线 (11-40)
-    { id: 11, positions: [0, 1, 0, 1, 0], name: '线 11', color: '#FFD700' },
-    { id: 12, positions: [2, 1, 2, 1, 2], name: '线 12', color: '#FF6B6B' },
-    { id: 13, positions: [0, 1, 1, 1, 0], name: '线 13', color: '#4ECDC4' },
-    { id: 14, positions: [2, 1, 1, 1, 2], name: '线 14', color: '#45B7D1' },
-    { id: 15, positions: [0, 0, 1, 0, 0], name: '线 15', color: '#96CEB4' },
-    { id: 16, positions: [2, 2, 1, 2, 2], name: '线 16', color: '#E74C3C' },
-    { id: 17, positions: [1, 0, 2, 0, 1], name: '线 17', color: '#9B59B6' },
-    { id: 18, positions: [1, 2, 0, 2, 1], name: '线 18', color: '#F39C12' },
-    { id: 19, positions: [0, 2, 0, 2, 0], name: '线 19', color: '#1ABC9C' },
-    { id: 20, positions: [2, 0, 2, 0, 2], name: '线 20', color: '#E67E22' },
-    { id: 21, positions: [0, 0, 2, 0, 0], name: '线 21', color: '#FFD700' },
-    { id: 22, positions: [2, 2, 0, 2, 2], name: '线 22', color: '#FF6B6B' },
-    { id: 23, positions: [1, 1, 0, 1, 1], name: '线 23', color: '#4ECDC4' },
-    { id: 24, positions: [1, 1, 2, 1, 1], name: '线 24', color: '#45B7D1' },
-    { id: 25, positions: [0, 2, 1, 2, 0], name: '线 25', color: '#96CEB4' },
-    { id: 26, positions: [2, 0, 1, 0, 2], name: '线 26', color: '#E74C3C' },
-    { id: 27, positions: [0, 1, 2, 2, 2], name: '线 27', color: '#9B59B6' },
-    { id: 28, positions: [2, 1, 0, 0, 0], name: '线 28', color: '#F39C12' },
-    { id: 29, positions: [0, 2, 1, 0, 0], name: '线 29', color: '#1ABC9C' },
-    { id: 30, positions: [2, 0, 1, 2, 2], name: '线 30', color: '#E67E22' },
-    { id: 31, positions: [1, 0, 1, 0, 1], name: '线 31', color: '#FFD700' },
-    { id: 32, positions: [1, 2, 1, 0, 1], name: '线 32', color: '#FF6B6B' },
-    { id: 33, positions: [0, 1, 0, 1, 2], name: '线 33', color: '#4ECDC4' },
-    { id: 34, positions: [2, 1, 2, 1, 0], name: '线 34', color: '#45B7D1' },
-    { id: 35, positions: [0, 2, 2, 1, 0], name: '线 35', color: '#96CEB4' },
-    { id: 36, positions: [2, 0, 0, 1, 2], name: '线 36', color: '#E74C3C' },
-    { id: 37, positions: [1, 0, 0, 1, 2], name: '线 37', color: '#9B59B6' },
-    { id: 38, positions: [1, 2, 2, 1, 0], name: '线 38', color: '#F39C12' },
-    { id: 39, positions: [0, 1, 1, 2, 2], name: '线 39', color: '#1ABC9C' },
-    { id: 40, positions: [2, 1, 1, 0, 0], name: '线 40', color: '#E67E22' }
-];
+            // 播放旋转音效
+            this.audioManager.playSpinSound();
 
-// ==================== 全局常量 ====================
-const SPECIAL_SYMBOLS = new Set(['symbols/12.png', 'symbols/13.png', 'symbols/11.png']);
-const HIGH_VALUE_SYMBOLS = new Set(['symbols/01.png', 'symbols/02.png', 'symbols/03.png', 'symbols/08.png']);
-const MEDIUM_VALUE_SYMBOLS = new Set(['symbols/04.png', 'symbols/05.png', 'symbols/06.png']);
-const LOW_VALUE_SYMBOLS = new Set(['symbols/07.png', 'symbols/09.png', 'symbols/10.png']);
+            // 免费旋转不需要下注
+            if (!this.state.isFreeSpinsActive) {
+                this.state.placeBet();
+            }
 
-// 赔付表集合
-const PAYTABLES = {
-    25: PAYTABLE_25,
-    40: PAYTABLE_40
-};
+            // 生成最终结果
+            const finalReels = this.generateRandomReels();
 
-// 导出配置
+            // 开始旋转动画
+            await this.reelManager.spinAllReels(finalReels);
+
+            // 获取最终可见符号
+            this.state.reels = this.reelManager.getVisibleSymbols();
+
+            // 计算结果
+            await this.calculateWin(this.state.reels);
+
+        } catch (error) {
+            console.error('旋转过程中出错:', error);
+            this.ui.addAnnouncement('游戏出错，请刷新页面', 'error');
+        } finally {
+            this.state.isSpinning = false;
+            this.ui.updateDisplay(this.state);
+
+            // 继续自动旋转
+            if (this.state.isAutoplay && this.state.autoplayCount > 0) {
+                this.continueAutoplay();
+            }
+        }
+    }
+
+    // 生成随机卷轴结果
+    generateRandomReels() {
+        return Array(GAME_CONFIG.reelCount).fill(null).map(() =>
+            Array(GAME_CONFIG.visibleSymbols).fill(null).map(() => {
+                // 使用RTP管理器的加权随机
+                return this.rtpManager.getWeightedSymbol();
+            })
+        );
+    }
+
+    // 计算赢取金额
+    async calculateWin(reels) {
+        let totalWin = 0;
+        const winningLines = [];
+        const highlightPositions = [];
+
+        // 获取当前赔率表
+        const currentPaytable = PAYTABLES[this.state.lines];
+
+        // 只检查已启用的中奖线
+        const activeLines = WIN_LINES.slice(0, this.state.lines);
+
+        // 检查每条中奖线
+        activeLines.forEach(line => {
+            const symbols = line.positions.map((pos, reelIndex) => reels[reelIndex][pos]);
+            const result = this.calculateLineWin(symbols, line, currentPaytable);
+            
+            if (result.win > 0) {
+                totalWin += result.win * this.state.bet;
+                winningLines.push(line);
+                
+                // 记录高亮位置
+                for (let i = 0; i < result.matchCount; i++) {
+                    highlightPositions.push([i, line.positions[i]]);
+                }
+            }
+        });
+
+        // 检查Scatter符号
+        const scatterCount = reels.flat().filter(s => s === GAME_CONFIG.scatterSymbol).length;
+        if (scatterCount >= 3) {
+            await this.handleScatterWin(scatterCount);
+        }
+
+        // 免费旋转倍数
+        if (this.state.isFreeSpinsActive) {
+            totalWin *= GAME_CONFIG.freeSpinsMultiplier;
+            this.state.useFreeSpin();
+            
+            if (this.state.freeSpins <= 0) {
+                this.ui.addAnnouncement('免费旋转结束！', 'info');
+            }
+        }
+
+        // 记录到RTP管理器
+        const totalBet = this.state.getTotalBet();
+        this.rtpManager.recordSpin(totalBet, totalWin, 
+            scatterCount >= 3 ? 'freeSpins' : null
+        );
+
+        // 添加赢取金额
+        this.state.addWin(totalWin);
+
+        // Jackpot检测 - 真实玩家永远不能中Jackpot
+        // 这里直接跳过，不执行任何操作
+        // if (Math.random() < this.rtpManager.calculateJackpotProbability()) {
+        //     await this.awardJackpot();
+        // }
+
+        // 显示结果
+        if (totalWin > 0) {
+            // 播放中奖音效
+            this.audioManager.playWinSound(totalWin);
+            
+            await this.showWinResults(totalWin, winningLines, highlightPositions);
+            this.state.addToHistory('中奖', totalWin);
+        } else {
+            this.state.addToHistory('未中奖', 0);
+            this.ui.addAnnouncement('未中奖', 'info');
+        }
+
+        // 更新UI
+        this.ui.updateDisplay(this.state);
+        this.ui.updateWinHistory(this.state.winHistory);
+        this.updateStatsDisplay();
+    }
+
+    // 计算单线赢取
+    calculateLineWin(symbols, line, paytable) {
+        const firstSymbol = symbols[0];
+        if (SPECIAL_SYMBOLS.has(firstSymbol)) return { win: 0, matchCount: 0 };
+        
+        let matchCount = 1;
+        for (let i = 1; i < symbols.length; i++) {
+            const currentSymbol = symbols[i];
+            // Wild符号可以替代任何普通符号
+            if (currentSymbol === firstSymbol || currentSymbol === GAME_CONFIG.wildSymbol) {
+                matchCount++;
+            } else {
+                break;
+            }
+        }
+        
+        if (matchCount >= 3 && paytable[firstSymbol] && !paytable[firstSymbol].special) {
+            const payout = paytable[firstSymbol][matchCount] || 0;
+            return { win: payout, matchCount };
+        }
+        
+        return { win: 0, matchCount: 0 };
+    }
+
+    // 处理Scatter中奖
+    async handleScatterWin(scatterCount) {
+        if (this.state.freeSpins === 0 && !this.state.isFreeSpinsActive) {
+            // 新的免费旋转
+            const freeSpinsCount = this.getFreeSpinsCount(scatterCount);
+            this.state.freeSpins = freeSpinsCount;
+            this.ui.setFreeSpinsCount(freeSpinsCount);
+            this.ui.showModal('free-spins-overlay');
+            this.ui.addAnnouncement(`触发 ${freeSpinsCount} 次免费旋转！`, 'success');
+        } else {
+            // 在免费旋转中再次触发，增加次数
+            const additionalSpins = this.getFreeSpinsCount(scatterCount);
+            this.state.freeSpins += additionalSpins;
+            this.ui.addAnnouncement(`额外获得 ${additionalSpins} 次免费旋转！`, 'success');
+        }
+    }
+
+    // 获取免费旋转次数
+    getFreeSpinsCount(scatterCount) {
+        const baseCounts = { 3: 10, 4: 15, 5: 20 };
+        return baseCounts[scatterCount] || 10;
+    }
+
+    // 显示赢取结果
+    async showWinResults(totalWin, winningLines, highlightPositions) {
+        this.ui.drawWinLines(winningLines);
+        this.ui.highlightSymbols(highlightPositions);
+        this.ui.addAnnouncement(`中奖 ${totalWin.toFixed(2)}！`, 'success');
+
+        // 显示Big Win动画
+        if (totalWin >= GAME_CONFIG.bigWinThreshold * this.state.bet) {
+            await this.ui.showBigWin(totalWin);
+        }
+
+        // 清除高亮和中奖线
+        setTimeout(() => {
+            this.ui.clearWinLines();
+            this.ui.highlightSymbols([]);
+        }, 3000);
+    }
+
+    // ========== 修改：Jackpot奖励方法 ==========
+    async awardJackpot() {
+        // 真实玩家永远不能中Jackpot
+        // 这里直接返回，不执行任何操作
+        console.log('Jackpot触发，但只保留给虚拟玩家');
+        return;
+        
+        // 注释掉原有的Jackpot奖励代码
+        /*
+        const jackpotWin = this.state.jackpot;
+        this.state.winJackpot(jackpotWin);
+        this.ui.setJackpotWinAmount(jackpotWin);
+        this.ui.showModal('jackpot-overlay');
+        this.ui.addAnnouncement(`Jackpot: ${jackpotWin.toFixed(2)}！`, 'success');
+        
+        // 更新RTP统计
+        this.rtpManager.recordSpin(0, jackpotWin, 'jackpot');
+        */
+    }
+
+    // 开始免费旋转
+    async startFreeSpins() {
+        this.state.isFreeSpinsActive = true;
+        this.ui.updateDisplay(this.state);
+        this.ui.addAnnouncement('免费旋转开始！', 'success');
+        
+        // 自动开始免费旋转
+        while (this.state.freeSpins > 0 && !this.state.isSpinning) {
+            await this.spin();
+            // 添加延迟，让玩家看到结果
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        this.state.isFreeSpinsActive = false;
+        this.ui.updateDisplay(this.state);
+    }
+
+    // 开始自动旋转
+    startAutoplay(count) {
+        this.state.startAutoplay(count);
+        this.ui.updateDisplay(this.state);
+        this.ui.addAnnouncement(`自动旋转 ${count} 次`, 'info');
+        this.spin();
+    }
+
+    // 继续自动旋转
+    continueAutoplay() {
+        if (this.state.autoplayCount > 0 && this.state.balance >= this.state.getTotalBet()) {
+            this.state.useAutoplay();
+            this.ui.updateDisplay(this.state);
+            
+            // 添加延迟，让玩家看到结果
+            setTimeout(() => {
+                if (!this.state.isSpinning) {
+                    this.spin();
+                }
+            }, 1000);
+        } else {
+            this.stopAutoplay();
+        }
+    }
+
+    // 停止自动旋转
+    stopAutoplay() {
+        this.state.stopAutoplay();
+        this.ui.updateDisplay(this.state);
+        this.ui.addAnnouncement('自动旋转已停止', 'info');
+    }
+
+    // 开始Jackpot增长
+    startJackpotGrowth() {
+        setInterval(() => {
+            this.state.jackpot += Math.random() * 0.3; // 降低增长速度
+            this.ui.updateDisplay(this.state);
+            
+            // 检查是否可以触发虚拟玩家Jackpot
+            if (this.state.jackpot >= VIRTUAL_PLAYER_CONFIG.jackpotTrigger && 
+                !this.virtualPlayers.jackpotTriggered) {
+                // 有2%概率在下次公告时触发
+                if (Math.random() < 0.02) {
+                    this.virtualPlayers.jackpotTriggered = true;
+                }
+            }
+        }, 1000);
+    }
+
+    // 更新统计显示
+    updateStatsDisplay() {
+        const stats = this.rtpManager.getCurrentStats();
+        const gameStats = this.state.getStats();
+        
+        // 更新统计弹窗内容
+        document.getElementById('stat-total-spins').textContent = stats.totalSpins;
+        document.getElementById('stat-total-wagered').textContent = stats.totalWagered.toFixed(2);
+        document.getElementById('stat-total-won').textContent = stats.totalPaid.toFixed(2);
+        document.getElementById('stat-current-rtp').textContent = stats.currentRTP.toFixed(2) + '%';
+        document.getElementById('stat-free-spins-triggered').textContent = this.state.stats.freeSpinsTriggered;
+        document.getElementById('stat-jackpots-won').textContent = this.state.stats.jackpotsWon;
+        document.getElementById('stat-biggest-win').textContent = this.state.stats.biggestWin.toFixed(2);
+        document.getElementById('stat-hit-rate').textContent = stats.hitRate.toFixed(2) + '%';
+    }
+
+    // 显示统计信息
+    showStats() {
+        this.updateStatsDisplay();
+        this.ui.showModal('stats-overlay');
+    }
+
+    // 显示调试信息
+    showDebugInfo() {
+        const debugInfo = {
+            gameState: {
+                balance: this.state.balance,
+                bet: this.state.bet,
+                lines: this.state.lines,
+                freeSpins: this.state.freeSpins,
+                isSpinning: this.state.isSpinning,
+                isAutoplay: this.state.isAutoplay
+            },
+            rtpStats: this.rtpManager.getDetailedReport(),
+            reelStatus: this.reelManager.getReelStatus(),
+            audioStatus: this.audioManager.getAudioStatus(),
+            virtualPlayers: this.virtualPlayers
+        };
+        
+        console.log('调试信息:', debugInfo);
+        this.ui.addAnnouncement('调试信息已输出到控制台', 'info');
+    }
+
+    // 重置游戏
+    resetGame() {
+        if (this.state.isSpinning) {
+            this.ui.addAnnouncement('请等待旋转结束', 'warning');
+            return;
+        }
+        
+        this.state.reset();
+        this.rtpManager.resetStats();
+        this.reelManager.resetAllReels();
+        this.ui.updateDisplay(this.state);
+        this.ui.updateWinHistory(this.state.winHistory);
+        this.updateStatsDisplay();
+        
+        this.ui.addAnnouncement('游戏已重置', 'info');
+    }
+
+    // 保存游戏数据
+    saveGame() {
+        const gameData = {
+            state: this.state.exportData(),
+            rtp: this.rtpManager.exportData(),
+            timestamp: Date.now()
+        };
+        
+        localStorage.setItem('slotGameSave', JSON.stringify(gameData));
+        this.ui.addAnnouncement('游戏已保存', 'success');
+    }
+
+    // 加载游戏数据
+    loadGame() {
+        const savedData = localStorage.getItem('slotGameSave');
+        if (savedData) {
+            try {
+                const gameData = JSON.parse(savedData);
+                this.state.importData(gameData.state);
+                this.rtpManager.importData(gameData.rtp);
+                this.ui.updateDisplay(this.state);
+                this.ui.updateWinHistory(this.state.winHistory);
+                this.updateStatsDisplay();
+                
+                this.ui.addAnnouncement('游戏已加载', 'success');
+            } catch (error) {
+                this.ui.addAnnouncement('加载游戏数据失败', 'error');
+            }
+        } else {
+            this.ui.addAnnouncement('没有找到保存的游戏数据', 'warning');
+        }
+    }
+
+    // 导出游戏数据
+    exportGameData() {
+        const gameData = {
+            state: this.state.exportData(),
+            rtp: this.rtpManager.exportData(),
+            config: {
+                game: GAME_CONFIG,
+                rtp: RTP_CONFIG
+            },
+            timestamp: Date.now(),
+            version: '1.0.0'
+        };
+        
+        const dataStr = JSON.stringify(gameData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        
+        // 创建下载链接
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `slot-game-backup-${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+        this.ui.addAnnouncement('游戏数据已导出', 'success');
+    }
+
+    // ========== 修改：销毁时清理定时器 ==========
+    destroy() {
+        // 清理虚拟玩家定时器
+        if (this.virtualPlayers.announcementTimer) {
+            clearTimeout(this.virtualPlayers.announcementTimer);
+        }
+        
+        this.reelManager.destroy();
+        this.audioManager.destroy();
+        this.stopAutoplay();
+        
+        console.log('游戏已销毁');
+    }
+}
+
+// ==================== 游戏初始化 ====================
+document.addEventListener('DOMContentLoaded', () => {
+    // 防止页面滚动
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    
+    let game;
+    
+    try {
+        // 初始化游戏
+        game = new GameEngine();
+        
+        // 窗口关闭前保存游戏
+        window.addEventListener('beforeunload', () => {
+            game.saveGame();
+        });
+        
+        // 将游戏实例暴露给全局，便于调试
+        window.slotGame = game;
+        
+    } catch (error) {
+        console.error('游戏初始化失败:', error);
+        alert('游戏初始化失败，请刷新页面重试。错误信息: ' + error.message);
+    }
+    
+    // 开发工具：在控制台输入 slotGame 来访问游戏实例
+    if (typeof console !== 'undefined') {
+        console.log('输入 slotGame 来访问游戏实例进行调试');
+        console.log('快捷键: Ctrl+M(静音) Ctrl+D(调试) Ctrl+S(统计) Space(旋转)');
+    }
+});
+
+// 错误处理
+window.addEventListener('error', (event) => {
+    console.error('游戏运行时错误:', event.error);
+    
+    // 显示友好的错误信息
+    const errorMessage = document.createElement('div');
+    errorMessage.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 0, 0, 0.9);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        z-index: 10000;
+        text-align: center;
+        max-width: 80%;
+    `;
+    errorMessage.innerHTML = `
+        <h3>游戏出现错误</h3>
+        <p>请刷新页面重试</p>
+        <button onclick="this.parentNode.remove()" style="margin-top: 10px; padding: 5px 10px;">关闭</button>
+    `;
+    
+    document.body.appendChild(errorMessage);
+});
+
+// 导出游戏引擎（如果使用模块系统）
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        GAME_CONFIG,
-        RTP_CONFIG,
-        PAYTABLE_25,
-        PAYTABLE_40,
-        WIN_LINES,
-        SPECIAL_SYMBOLS,
-        HIGH_VALUE_SYMBOLS,
-        MEDIUM_VALUE_SYMBOLS,
-        LOW_VALUE_SYMBOLS,
-        PAYTABLES
-    };
+    module.exports = GameEngine;
 }
