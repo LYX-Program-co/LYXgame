@@ -182,6 +182,11 @@ class ReelManager {
         reel.strip.style.transition = 'transform 0.45s cubic-bezier(0.25, 1, 0.25, 1.25)';
         reel.strip.style.transform = `translateY(${targetY}px)`;
         
+        // ========== 新增：播放停止音效 ==========
+        if (this.audioManager) {
+            this.audioManager.playStopSound();
+        }
+        
         await new Promise(resolve => setTimeout(resolve, 450));
         
         reel.element.classList.remove('stopping');

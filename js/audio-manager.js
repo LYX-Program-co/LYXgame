@@ -29,6 +29,22 @@ class AudioManager {
             this.audioElements[key] = audio;
         });
 
+        // ========== 新增：创建停止音效 ==========
+        const stopAudio = new Audio();
+        stopAudio.src = 'music/stop.mp3'; // 停止音效路径
+        stopAudio.preload = 'auto';
+        stopAudio.volume = 0.4;
+        
+        stopAudio.addEventListener('error', (e) => {
+            console.error('停止音效加载失败:', e);
+        });
+        
+        stopAudio.addEventListener('canplaythrough', () => {
+            console.log('停止音效已加载: music/stop.mp3');
+        });
+        
+        this.audioElements.stop = stopAudio;
+
         // 预加载音频
         this.preloadAudio();
         
@@ -123,7 +139,7 @@ class AudioManager {
         }
     }
 
-    // 播放停止音效 (新增)
+    // ========== 新增：播放停止音效 ==========
     playStopSound() {
         if (this.isMuted) return;
         
@@ -134,6 +150,8 @@ class AudioManager {
             stopSound.play().catch(e => {
                 console.log('停止音效播放失败:', e.message);
             });
+        } else {
+            console.warn('停止音效文件未找到');
         }
     }
 
