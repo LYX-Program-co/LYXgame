@@ -206,9 +206,9 @@ class RTPManager {
     // 计算免费旋转触发概率
     calculateFreeSpinsProbability(scatterCount) {
         const baseProbability = {
-            3: 0.01,  // 1%概率
-            4: 0.02,  // 2%概率
-            5: 0.05   // 5%概率
+            3: 0.01,   // 1%概率 - 3个Scatter
+            4: 0.006,  // 0.6%概率 - 4个Scatter  
+            5: 0.002   // 0.2%概率 - 5个Scatter
         };
         
         let probability = baseProbability[scatterCount] || 0;
@@ -216,41 +216,41 @@ class RTPManager {
         // 根据RTP调整概率
         const rtpDiff = this.config.targetRTP - this.stats.currentRTP;
         if (rtpDiff > 2) {
-            probability *= 1.5; // RTP偏低时增加概率
+            probability *= 1.3; // RTP偏低时稍微增加概率
         } else if (rtpDiff < -2) {
-            probability *= 0.7; // RTP偏高时减少概率
+            probability *= 0.5; // RTP偏高时大幅减少概率
         }
         
         // 根据免费旋转触发频率调整
         const freeSpinRate = this.stats.freeSpinsTriggered / Math.max(1, this.stats.totalSpins);
-        if (freeSpinRate < 0.005) { // 低于0.5%触发率
-            probability *= 1.3;
-        } else if (freeSpinRate > 0.015) { // 高于1.5%触发率
-            probability *= 0.7;
-        }
-        
-        return Math.min(0.1, probability); // 最大10%概率
-    }
-
-    // 计算Jackpot概率
-    calculateJackpotProbability() {
-        let probability = GAME_CONFIG.jackpotProbability || 0.02;
-        
-        // 根据RTP调整
-        const rtpDiff = this.config.targetRTP - this.stats.currentRTP;
-        if (rtpDiff > 3) {
-            probability *= 1.5;
-        } else if (rtpDiff < -3) {
+        if (freeSpinRate < 0.002) { // 低于0.2%触发率
+            probability *= 1.2;
+        } else if (freeSpinRate > 0.005) { // 高于0.5%触发率
             probability *= 0.5;
         }
         
-        // 根据总下注金额调整（鼓励持续游戏）
+        return Math.min(0.02, probability); // 最大2%概率
+    }
+
+    // 计算Jackpot概率 - 大幅降低
+    calculateJackpotProbability() {
+        let probability = GAME_CONFIG.jackpotProbability || 0.0002; // 0.02%
+        
+        // 根据RTP调整
+        const rtpDiff = this.config.targetRTP - this.stats.currentRTP;
+        if (rtpDiff > 5) {
+            probability *= 1.3;
+        } else if (rtpDiff < -5) {
+            probability *= 0.3;
+        }
+        
+        // 根据总下注金额调整
         const wageredPerJackpot = this.stats.totalWagered / Math.max(1, this.stats.jackpotsWon);
-        if (wageredPerJackpot > 50000) { // 如果平均5万才中一次Jackpot
+        if (wageredPerJackpot > 1000000) { // 如果平均100万才中一次Jackpot
             probability *= 1.5;
         }
         
-        return Math.min(0.05, probability); // 最大5%概率
+        return Math.min(0.0005, probability); // 最大0.05%概率
     }
 
     // 获取当前统计信息

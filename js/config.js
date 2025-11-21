@@ -10,11 +10,12 @@ const GAME_CONFIG = {
     visibleSymbols: 3,
     symbolsPerReel: 20,
     
-    // 金额配置
+    // 金额配置 - 新增下注额选项
     initialBalance: 1000,
     initialJackpot: 5000,
-    minBet: 1,
-    maxBet: 100,
+    minBet: 0.25,
+    maxBet: 1000,
+    betSteps: [0.25, 0.50, 1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
     betStep: 1,
     
     // 动画配置
@@ -23,9 +24,9 @@ const GAME_CONFIG = {
     spinSpeed: 50,
     
     // 游戏规则
-    freeSpinsMultiplier: 3,
+    freeSpinsMultiplier: 5,  // 免费旋转倍数改为5倍
     freeSpinsCount: 10,
-    jackpotProbability: 0.02,
+    jackpotProbability: 0.0002,  // 0.02%
     bigWinThreshold: 50,
     
     // 特殊符号 - 使用图片路径
@@ -41,103 +42,103 @@ const GAME_CONFIG = {
         bigWin: 'music/bigwin.mp3',
         jackpot: 'music/jackpot.mp3',
         freeSpins: 'music/freespins.mp3',
-        stop: 'music/stop.mp3'  // 新增停止音效
+        stop: 'music/stop.mp3'
     }
 };
 
 // ==================== RTP配置 ====================
 const RTP_CONFIG = {
-    // 基础RTP设置 - 修改为90%
-    targetRTP: 90.0,                    // 目标RTP百分比
-    volatility: 'medium',               // 波动率: low/medium/high
-    hitFrequency: 18,                   // 中奖频率(%) - 降低
+    // 基础RTP设置 - 修改为35%
+    targetRTP: 35.0,
+    volatility: 'medium',
+    hitFrequency: 18,
     
-    // RTP分配比例 - 修改分配
+    // RTP分配比例
     rtpDistribution: {
-        baseGame: 79.0,                 // 基础游戏RTP
-        freeSpins: 8.0,                 // 免费旋转RTP  
-        jackpot: 2.0,                   // Jackpot RTP
-        bonus: 1.0                      // 奖金游戏RTP
+        baseGame: 29.0,
+        freeSpins: 4.0,
+        jackpot: 1.5,
+        bonus: 0.5
     },
     
-    // 符号出现频率调整 (基于90% RTP)
+    // 符号出现频率调整 (基于35% RTP)
     symbolFrequencies: {
-        'symbols/10.png': 16.5,    // 增加低价值符号频率
-        'symbols/07.png': 13.5,    
-        'symbols/09.png': 9.2,     
-        'symbols/08.png': 3.1,     // 减少高价值符号频率
-        'symbols/01.png': 1.6,     
-        'symbols/02.png': 1.5,     
-        'symbols/03.png': 1.5,     
-        'symbols/04.png': 7.0,     
-        'symbols/05.png': 7.0,     
-        'symbols/06.png': 7.0,     
-        'symbols/11.png': 1.5,     
-        'symbols/12.png': 1.5,     
-        'symbols/13.png': 0.8      
+        'symbols/10.png': 16.5,
+        'symbols/07.png': 13.5,
+        'symbols/09.png': 9.2,
+        'symbols/04.png': 7.0,
+        'symbols/05.png': 7.0,
+        'symbols/06.png': 7.0,
+        'symbols/08.png': 2.1,
+        'symbols/01.png': 1.1,
+        'symbols/02.png': 1.2,
+        'symbols/03.png': 1.3,
+        'symbols/11.png': 0.9,
+        'symbols/12.png': 0.7,
+        'symbols/13.png': 0.5
     },
     
     // 动态调整参数
     adjustment: {
         enabled: true,
-        checkInterval: 100,             // 每100局检查一次
-        maxAdjustment: 5.0,             // 最大调整幅度%
-        minRTP: 88.0,                   // 调整最低RTP
-        maxRTP: 92.0                    // 调整最高RTP
+        checkInterval: 100,
+        maxAdjustment: 3.0,
+        minRTP: 32.0,
+        maxRTP: 38.0
     },
     
     // 波动率配置
     volatilityProfiles: {
         low: {
-            baseHitRate: 25,
-            bigWinMultiplier: 50,
-            drySpellMax: 10,
-            symbolFrequencyMultiplier: 1.3
+            baseHitRate: 20,
+            bigWinMultiplier: 40,
+            drySpellMax: 8,
+            symbolFrequencyMultiplier: 1.2
         },
         medium: {
-            baseHitRate: 18,            // 降低命中率
-            bigWinMultiplier: 80,
-            drySpellMax: 15,
+            baseHitRate: 18,
+            bigWinMultiplier: 60,
+            drySpellMax: 12,
             symbolFrequencyMultiplier: 1.0
         },
         high: {
             baseHitRate: 12,
-            bigWinMultiplier: 150,
-            drySpellMax: 25,
-            symbolFrequencyMultiplier: 0.7
+            bigWinMultiplier: 100,
+            drySpellMax: 20,
+            symbolFrequencyMultiplier: 0.8
         }
     }
 };
 
-// ==================== 赔付表配置 (25线) ====================
+// ==================== 赔付表配置 (25线) - 修正错误 ====================
 const PAYTABLE_25 = {
-    'symbols/01.png': { 3: 100, 4: 500, 5: 2000, name: '龙', type: 'high' },
-    'symbols/02.png': { 3: 80, 4: 400, 5: 1500, name: '凤凰', type: 'high' },
-    'symbols/03.png': { 3: 60, 4: 300, 5: 1000, name: '元宝', type: 'high' },
-    'symbols/04.png': { 3: 40, 4: 200, 5: 800, name: '竹节', type: 'medium' },
-    'symbols/05.png': { 3: 40, 4: 200, 5: 800, name: '福字', type: 'medium' },
-    'symbols/06.png': { 3: 30, 4: 150, 5: 600, name: '锦鲤', type: 'medium' },
-    'symbols/07.png': { 3: 20, 4: 100, 5: 400, name: '金币', type: 'low' },
-    'symbols/08.png': { 3: 50, 4: 250, 5: 1200, name: '幸运7', type: 'high' },
-    'symbols/09.png': { 3: 25, 4: 125, 5: 500, name: '铃铛', type: 'low' },
-    'symbols/10.png': { 3: 15, 4: 75, 5: 300, name: '美元', type: 'low' },
+    'symbols/01.png': { 3: 50, 4: 200, 5: 800, name: '龙', type: 'high' },
+    'symbols/02.png': { 3: 40, 4: 150, 5: 600, name: '凤凰', type: 'high' },
+    'symbols/03.png': { 3: 30, 4: 120, 5: 500, name: '元宝', type: 'high' },
+    'symbols/04.png': { 3: 20, 4: 80, 5: 300, name: '竹节', type: 'medium' },
+    'symbols/05.png': { 3: 20, 4: 80, 5: 300, name: '福字', type: 'medium' },
+    'symbols/06.png': { 3: 15, 4: 60, 5: 200, name: '锦鲤', type: 'medium' },
+    'symbols/07.png': { 3: 10, 4: 40, 5: 150, name: '金币', type: 'low' },
+    'symbols/08.png': { 3: 25, 4: 100, 5: 400, name: '幸运7', type: 'high' },
+    'symbols/09.png': { 3: 8, 4: 30, 5: 100, name: '铃铛', type: 'low' },
+    'symbols/10.png': { 3: 5, 4: 20, 5: 80, name: '美元', type: 'low' },
     'symbols/11.png': { special: 'Wild - 替代任何符号', name: 'Wild', type: 'special' },
     'symbols/12.png': { special: 'Scatter - 3个触发免费旋转', name: 'Scatter', type: 'special' },
     'symbols/13.png': { special: 'Bonus - 触发奖金游戏', name: 'Bonus', type: 'special' }
 };
 
-// ==================== 赔付表配置 (40线) ====================
+// ==================== 赔付表配置 (40线) - 修正错误 ====================
 const PAYTABLE_40 = {
-    'symbols/01.png': { 3: 60, 4: 300, 5: 1200, name: '龙', type: 'high' },
-    'symbols/02.png': { 3: 50, 4: 250, 5: 1000, name: '凤凰', type: 'high' },
-    'symbols/03.png': { 3: 40, 4: 200, 5: 600, name: '元宝', type: 'high' },
-    'symbols/04.png': { 3: 25, 4: 120, 5: 500, name: '竹节', type: 'medium' },
-    'symbols/05.png': { 3: 25, 4: 120, 5: 500, name: '福字', type: 'medium' },
-    'symbols/06.png': { 3: 20, 4: 100, 5: 400, name: '锦鲤', type: 'medium' },
-    'symbols/07.png': { 3: 15, 4: 75, 5: 250, name: '金币', type: 'low' },
-    'symbols/08.png': { 3: 30, 4: 150, 5: 800, name: '幸运7', type: 'high' },
-    'symbols/09.png': { 3: 15, 4: 80, 5: 300, name: '铃铛', type: 'low' },
-    'symbols/10.png': { 3: 10, 4: 50, 5: 200, name: '美元', type: 'low' },
+    'symbols/01.png': { 3: 30, 4: 120, 5: 400, name: '龙', type: 'high' },
+    'symbols/02.png': { 3: 25, 4: 100, 5: 300, name: '凤凰', type: 'high' },
+    'symbols/03.png': { 3: 20, 4: 80, 5: 250, name: '元宝', type: 'high' },
+    'symbols/04.png': { 3: 15, 4: 60, 5: 180, name: '竹节', type: 'medium' },
+    'symbols/05.png': { 3: 15, 4: 60, 5: 180, name: '福字', type: 'medium' },
+    'symbols/06.png': { 3: 12, 4: 45, 5: 120, name: '锦鲤', type: 'medium' },
+    'symbols/07.png': { 3: 8, 4: 30, 5: 80, name: '金币', type: 'low' },
+    'symbols/08.png': { 3: 18, 4: 70, 5: 200, name: '幸运7', type: 'high' },
+    'symbols/09.png': { 3: 6, 4: 20, 5: 60, name: '铃铛', type: 'low' },
+    'symbols/10.png': { 3: 4, 4: 15, 5: 40, name: '美元', type: 'low' },
     'symbols/11.png': { special: 'Wild - 替代任何符号', name: 'Wild', type: 'special' },
     'symbols/12.png': { special: 'Scatter - 3个触发免费旋转', name: 'Scatter', type: 'special' },
     'symbols/13.png': { special: 'Bonus - 触发奖金游戏', name: 'Bonus', type: 'special' }
@@ -206,9 +207,18 @@ const PAYTABLES = {
 // ==================== 虚拟玩家系统配置 ====================
 const VIRTUAL_PLAYER_CONFIG = {
     enabled: true,
-    announcementInterval: { min: 30000, max: 180000 }, // 30秒-3分钟
-    jackpotTrigger: 100000, // Jackpot在10万后才开始掉落
-    virtualPlayerRTP: 90, // 虚拟玩家RTP 90%
+    minOnlinePlayers: 65,
+    maxOnlinePlayers: 120,
+    playerUpdateInterval: { min: 30000, max: 120000 }, // 30秒-2分钟更新在线人数
+    announcementInterval: { min: 45000, max: 240000 },
+    jackpotTrigger: 500000,
+    virtualPlayerRTP: 35,
+    
+    // 虚拟玩家行为
+    playerActivities: [
+        "正在旋转...", "查看赔付表", "调整下注额", "切换线数", 
+        "获得免费旋转", "赢得奖金", "连续中奖", "尝试最大下注"
+    ],
     
     // 马来西亚风格名字组件
     nameComponents: {
@@ -259,13 +269,15 @@ const VIRTUAL_PLAYER_CONFIG = {
     
     // 已使用的名字集合（确保不重复）
     usedNames: new Set(),
+    namePool: [],
+    onlinePlayers: new Set(),
     
     // 中奖金额范围
     winAmounts: {
-        small: { min: 50, max: 500 },
-        medium: { min: 500, max: 2000 },
-        large: { min: 2000, max: 10000 },
-        jackpot: { min: 50000, max: 200000 }
+        small: { min: 20, max: 200 },
+        medium: { min: 200, max: 800 },
+        large: { min: 800, max: 5000 },
+        jackpot: { min: 10000, max: 50000 }
     }
 };
 

@@ -8,23 +8,26 @@ class GameEngine {
         this.reelManager = new ReelManager(document.querySelectorAll('.reel'), this.audioManager);
         this.rtpManager = new RTPManager(RTP_CONFIG);
         
-        // ========== 新增：虚拟玩家系统 ==========
+        // ========== 增强虚拟玩家系统 ==========
         this.virtualPlayers = {
+            onlinePlayers: new Set(),
             announcementTimer: null,
+            playerUpdateTimer: null,
             jackpotTriggered: false,
-            lastJackpotTime: 0
+            lastJackpotTime: 0,
+            totalOnlinePlayers: 0
         };
         
-        // 修改RTP为90%
-        RTP_CONFIG.targetRTP = 90;
+        // 修改RTP为35%
+        RTP_CONFIG.targetRTP = 35;
         RTP_CONFIG.rtpDistribution = {
-            baseGame: 79.0,
-            freeSpins: 8.0,
-            jackpot: 2.0,
-            bonus: 1.0
+            baseGame: 29.0,
+            freeSpins: 4.0,
+            jackpot: 1.5,
+            bonus: 0.5
         };
         
-        // ========== 新增：初始化虚拟玩家名字池 ==========
+        // ========== 初始化虚拟玩家名字池 ==========
         VIRTUAL_PLAYER_CONFIG.initializeNamePool(300); // 预生成300个名字
         
         // 初始化游戏
@@ -32,10 +35,12 @@ class GameEngine {
         this.initializeEventListeners();
         this.startJackpotGrowth();
         
-        // ========== 新增：启动虚拟玩家公告 ==========
+        // ========== 启动虚拟玩家系统 ==========
+        this.initializeVirtualPlayers();
         this.startVirtualPlayerAnnouncements();
+        this.startOnlinePlayerUpdates();
         
-        console.log('老虎机游戏已启动！RTP: 90%');
+        console.log('老虎机游戏已启动！RTP: 35%');
         console.log('💡 提示：点击任意位置启用背景音乐');
     }
 
@@ -179,7 +184,99 @@ class GameEngine {
         }, { passive: false });
     }
 
-    // ========== 新增：虚拟玩家公告系统 ==========
+    // ========== 初始化虚拟玩家 ==========
+    initializeVirtualPlayers() {
+        // 生成初始在线玩家 (65-120人)
+        const initialCount = Math.floor(Math.random() * 56) + 65; // 65-120
+        for (let i = 0; i < initialCount; i++) {
+            const playerName = this.getRandomPlayerName();
+            this.virtualPlayers.onlinePlayers.add(playerName);
+        }
+        this.virtualPlayers.totalOnlinePlayers = this.virtualPlayers.onlinePlayers.size;
+        
+        // 显示初始在线人数
+        this.updateOnlinePlayersDisplay();
+        console.log(`初始虚拟玩家: ${this.virtualPlayers.totalOnlinePlayers}人在线`);
+    }
+
+    // ========== 在线玩家更新系统 ==========
+    startOnlinePlayerUpdates() {
+        const updatePlayers = () => {
+            // 随机增减玩家数量
+            const change = Math.floor(Math.random() * 11) - 5; // -5 到 +5
+            let newCount = this.virtualPlayers.totalOnlinePlayers + change;
+            
+            // 保持在65-120范围内
+            newCount = Math.max(65, Math.min(120, newCount));
+            
+            // 更新玩家集合
+            if (newCount > this.virtualPlayers.totalOnlinePlayers) {
+                // 增加玩家
+                const toAdd = newCount - this.virtualPlayers.totalOnlinePlayers;
+                for (let i = 0; i < toAdd; i++) {
+                    const playerName = this.getRandomPlayerName();
+                    this.virtualPlayers.onlinePlayers.add(playerName);
+                }
+            } else if (newCount < this.virtualPlayers.totalOnlinePlayers) {
+                // 减少玩家
+                const toRemove = this.virtualPlayers.totalOnlinePlayers - newCount;
+                const playersArray = Array.from(this.virtualPlayers.onlinePlayers);
+                for (let i = 0; i < toRemove && playersArray.length > 0; i++) {
+                    const randomIndex = Math.floor(Math.random() * playersArray.length);
+                    this.virtualPlayers.onlinePlayers.delete(playersArray[randomIndex]);
+                }
+            }
+            
+            this.virtualPlayers.totalOnlinePlayers = this.virtualPlayers.onlinePlayers.size;
+            this.updateOnlinePlayersDisplay();
+            
+            // 随机显示玩家活动
+            if (Math.random() < 0.3) {
+                this.showPlayerActivity();
+            }
+            
+            // 安排下一次更新
+            const nextUpdate = Math.random() * 
+                (VIRTUAL_PLAYER_CONFIG.playerUpdateInterval.max - 
+                 VIRTUAL_PLAYER_CONFIG.playerUpdateInterval.min) + 
+                VIRTUAL_PLAYER_CONFIG.playerUpdateInterval.min;
+            
+            this.virtualPlayers.playerUpdateTimer = setTimeout(updatePlayers, nextUpdate);
+        };
+        
+        updatePlayers();
+    }
+
+    // ========== 更新在线玩家显示 ==========
+    updateOnlinePlayersDisplay() {
+        const totalPlayers = this.virtualPlayers.totalOnlinePlayers + 1; // +1 真实玩家
+        const announcement = `在线玩家: ${totalPlayers}人 (你 + ${this.virtualPlayers.totalOnlinePlayers}虚拟玩家)`;
+        
+        // 更新公告板标题
+        const announcementTitle = document.querySelector('#announcement-board h3');
+        if (announcementTitle) {
+            announcementTitle.textContent = `公告 & 在线(${totalPlayers}人)`;
+        }
+        
+        // 定期显示在线人数更新
+        if (Math.random() < 0.2) {
+            this.ui.addAnnouncement(announcement, 'info');
+        }
+    }
+
+    // ========== 显示玩家活动 ==========
+    showPlayerActivity() {
+        const activities = VIRTUAL_PLAYER_CONFIG.playerActivities;
+        const activity = activities[Math.floor(Math.random() * activities.length)];
+        const randomPlayer = Array.from(this.virtualPlayers.onlinePlayers)[
+            Math.floor(Math.random() * this.virtualPlayers.onlinePlayers.size)
+        ];
+        
+        const message = `👤 ${randomPlayer} ${activity}`;
+        this.ui.addAnnouncement(message, 'info');
+    }
+
+    // ========== 增强虚拟玩家公告 ==========
     startVirtualPlayerAnnouncements() {
         const scheduleNextAnnouncement = () => {
             const delay = Math.random() * 
@@ -235,7 +332,7 @@ class GameEngine {
             !this.virtualPlayers.jackpotTriggered &&
             Date.now() - this.virtualPlayers.lastJackpotTime > 300000) { // 5分钟内不重复
             
-            const jackpotChance = 0.02; // 2%概率
+            const jackpotChance = 0.0002; // 0.02%概率
             if (rand < jackpotChance) {
                 return 'jackpot';
             }
@@ -465,18 +562,6 @@ class GameEngine {
         // 这里直接返回，不执行任何操作
         console.log('Jackpot触发，但只保留给虚拟玩家');
         return;
-        
-        // 注释掉原有的Jackpot奖励代码
-        /*
-        const jackpotWin = this.state.jackpot;
-        this.state.winJackpot(jackpotWin);
-        this.ui.setJackpotWinAmount(jackpotWin);
-        this.ui.showModal('jackpot-overlay');
-        this.ui.addAnnouncement(`Jackpot: ${jackpotWin.toFixed(2)}！`, 'success');
-        
-        // 更新RTP统计
-        this.rtpManager.recordSpin(0, jackpotWin, 'jackpot');
-        */
     }
 
     // 开始免费旋转
@@ -665,11 +750,14 @@ class GameEngine {
         this.ui.addAnnouncement('游戏数据已导出', 'success');
     }
 
-    // ========== 修改：销毁时清理定时器 ==========
+    // ========== 修改：销毁时清理所有定时器 ==========
     destroy() {
         // 清理虚拟玩家定时器
         if (this.virtualPlayers.announcementTimer) {
             clearTimeout(this.virtualPlayers.announcementTimer);
+        }
+        if (this.virtualPlayers.playerUpdateTimer) {
+            clearTimeout(this.virtualPlayers.playerUpdateTimer);
         }
         
         this.reelManager.destroy();

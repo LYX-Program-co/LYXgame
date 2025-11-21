@@ -4,6 +4,7 @@ class GameState {
         // 基础游戏状态
         this.balance = GAME_CONFIG.initialBalance;
         this.bet = GAME_CONFIG.minBet;
+        this.betIndex = 0; // 当前下注额索引
         this.lines = 25; // 默认25条线
         this.win = 0;
         this.modified = 0;
@@ -65,24 +66,38 @@ class GameState {
         }
     }
 
-    // 增加押注
+    // 增加押注 - 改为使用预设下注额
     increaseBet() {
-        const newBet = this.bet + GAME_CONFIG.betStep;
-        if (newBet <= Math.min(GAME_CONFIG.maxBet, this.balance / this.lines)) {
-            this.bet = newBet;
+        if (this.betIndex < GAME_CONFIG.betSteps.length - 1) {
+            this.betIndex++;
+            this.bet = GAME_CONFIG.betSteps[this.betIndex];
+            
+            // 确保总赌注不超过余额
+            if (this.getTotalBet() > this.balance) {
+                this.decreaseBet();
+            }
         }
     }
 
     // 减少押注
     decreaseBet() {
-        if (this.bet > GAME_CONFIG.minBet) {
-            this.bet -= GAME_CONFIG.betStep;
+        if (this.betIndex > 0) {
+            this.betIndex--;
+            this.bet = GAME_CONFIG.betSteps[this.betIndex];
         }
     }
 
     // 设置最大押注
     setMaxBet() {
-        this.bet = Math.min(GAME_CONFIG.maxBet, Math.floor(this.balance / this.lines));
+        // 找到不超过余额的最大下注额
+        for (let i = GAME_CONFIG.betSteps.length - 1; i >= 0; i--) {
+            const potentialBet = GAME_CONFIG.betSteps[i];
+            if (potentialBet * this.lines <= this.balance) {
+                this.betIndex = i;
+                this.bet = potentialBet;
+                break;
+            }
+        }
     }
 
     // 切换线数 (25 <-> 40)
@@ -180,6 +195,7 @@ class GameState {
     reset() {
         this.balance = GAME_CONFIG.initialBalance;
         this.bet = GAME_CONFIG.minBet;
+        this.betIndex = 0;
         this.lines = 25;
         this.win = 0;
         this.modified = 0;
@@ -216,6 +232,7 @@ class GameState {
         return {
             balance: this.balance,
             bet: this.bet,
+            betIndex: this.betIndex,
             lines: this.lines,
             stats: this.stats,
             winHistory: this.winHistory,
@@ -227,6 +244,7 @@ class GameState {
     importData(data) {
         if (data.balance) this.balance = data.balance;
         if (data.bet) this.bet = data.bet;
+        if (data.betIndex) this.betIndex = data.betIndex;
         if (data.lines) this.lines = data.lines;
         if (data.stats) this.stats = { ...this.stats, ...data.stats };
         if (data.winHistory) this.winHistory = data.winHistory;
